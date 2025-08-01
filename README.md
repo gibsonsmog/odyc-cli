@@ -55,12 +55,19 @@ odyc-cli sprites [OPTIONS]
 **Options:**
 - `-a, --assets <path>` - Path to assets directory containing PNG files (required)
 - `-o, --output <path>` - Path to output JavaScript file (required)
+- `--sprite-sheet` - Specifies that the command will crop the images into block-width and block-height sized pieces
+- `--block-width int` - The width of the cropped blocks required for --sprite-sheet
+- `--block-height int` - The height of the cropped blocks required for --sprit-sheet
 - `-f, --force` - Overwrite output file if it exists
 - `-h, --help` - Show help for sprites command
 
 **Example:**
 ```bash
 odyc-cli sprites --assets ./game-sprites --output ./src/gameConfig.js --force
+```
+For a tile set consider
+```bash
+odyc-cli sprites --assets ./game-sprites/tiles --output ./src/gameConfig.js --sprite-sheet --block-width 16 --block-height 16 --force
 ```
 
 **Generated Output:**

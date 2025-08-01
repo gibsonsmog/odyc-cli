@@ -15,11 +15,17 @@ import (
 var assetsPath string
 var outputPath string
 var force bool
+var spriteSheet bool
+var blockWidth int
+var blockHeight int
 
 func init() {
 	spritesCmd.Flags().StringVarP(&assetsPath, "assets", "a", "", "path to assets directory")
 	spritesCmd.Flags().StringVarP(&outputPath, "output", "o", "", "path to output file")
 	spritesCmd.Flags().BoolVarP(&force, "force", "f", false, "overwrite output file if it exists")
+	spritesCmd.Flags().BoolVar(&spriteSheet, "sprite-sheet", false, "treat assets as a sprite sheet (multiple sprites in one image)")
+	spritesCmd.Flags().IntVar(&blockWidth, "block-width", 0, "width of each sprite block (for sprite sheets)")
+	spritesCmd.Flags().IntVar(&blockHeight, "block-height", 0, "height of each sprite block (for sprite sheets)")
 
 	err := spritesCmd.MarkFlagRequired("assets")
 	if err != nil {
@@ -102,6 +108,63 @@ var spritesCmd = &cobra.Command{
 		warnedAboutWidth := false
 		warnedAboutHeight := false
 
+		// Helper function to process a color and update the colors map
+		processColor := func(hexCodeRGBA, png string) {
+			if hexCodeRGBA != "#00000000" {
+				if _, exists := colors[hexCodeRGBA]; !exists {
+					colors[hexCodeRGBA] = ColorMetadata{
+						Color: hexCodeRGBA,
+						Count: 1,
+						Files: []string{png},
+						Index: currentColorIndex,
+					}
+					currentColorIndex++
+				} else {
+					color := colors[hexCodeRGBA]
+					color.Count++
+					filePresent := false
+					for _, file := range color.Files {
+						if file == png {
+							filePresent = true
+							break
+						}
+					}
+					if !filePresent {
+						color.Files = append(colors[hexCodeRGBA].Files, png)
+					}
+					colors[hexCodeRGBA] = color
+				}
+			}
+		}
+
+		// Helper function to get color index character for a pixel
+		getColorIndex := func(hexCodeRGBA string) string {
+			colorIndexOfPixel := "."
+			if hexCodeRGBA != "#00000000" {
+				if colors[hexCodeRGBA].Index < 10 {
+					colorIndexOfPixel = strconv.Itoa(colors[hexCodeRGBA].Index)
+				} else {
+					newIndex := colors[hexCodeRGBA].Index - 10
+					charsMap := strings.Split("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ", "")
+					if newIndex-1 > len(charsMap) {
+						log.Error("Too many colors. You can only use up to 62 colors")
+					}
+					colorIndexOfPixel = charsMap[newIndex]
+				}
+			}
+			return colorIndexOfPixel
+		}
+
+		// Helper function to process a single pixel
+		processPixel := func(img image.Image, x, y int, png string) string {
+			c := img.At(x, y)
+			r, g, b, a := c.RGBA()
+			r8, g8, b8, a8 := uint8(r>>8), uint8(g>>8), uint8(b>>8), uint8(a>>8)
+			hexCodeRGBA := fmt.Sprintf("#%02x%02x%02x%02x", r8, g8, b8, a8)
+			processColor(hexCodeRGBA, png)
+			return getColorIndex(hexCodeRGBA)
+		}
+
 		for _, png := range pngs {
 			spriteName := strings.TrimSuffix(png, ".png")
 			file, err := os.Open(filepath.Join(assetsPath, png))
@@ -122,6 +185,53 @@ var spritesCmd = &cobra.Command{
 			}
 
 			bounds := img.Bounds()
+
+			// If blockWidth and blockHeight are set, treat as sprite sheet
+			if spriteSheet && blockWidth > 0 && blockHeight > 0 {
+				blocksX := bounds.Dx() / blockWidth
+				blocksY := bounds.Dy() / blockHeight
+				if bounds.Dx()%blockWidth != 0 || bounds.Dy()%blockHeight != 0 {
+					log.Warn("Image " + png + " dimensions are not a multiple of block size; some pixels may be ignored.")
+				}
+				for by := 0; by < blocksY; by++ {
+					for bx := 0; bx < blocksX; bx++ {
+						blockSpriteName := spriteName + "_" + strconv.Itoa(by) + "_" + strconv.Itoa(bx)
+						if _, exists := sprites[blockSpriteName]; !exists {
+							sprites[blockSpriteName] = SpriteMetadata{
+								Rows: make([][]string, blockHeight),
+							}
+						}
+						for y := 0; y < blockHeight; y++ {
+							spriteRow := make([]string, blockWidth)
+							for x := 0; x < blockWidth; x++ {
+								ix := bx*blockWidth + x
+								iy := by*blockHeight + y
+								if ix >= bounds.Dx() || iy >= bounds.Dy() {
+									spriteRow[x] = "."
+									continue
+								}
+								spriteRow[x] = processPixel(img, ix, iy, png)
+							}
+							sprites[blockSpriteName].Rows[y] = spriteRow
+						}
+					}
+				}
+				if blockWidth > maxWidth {
+					if maxWidth != 0 && !warnedAboutWidth {
+						log.Warn("Block width is larger than previous max width")
+						warnedAboutWidth = true
+					}
+					maxWidth = blockWidth
+				}
+				if blockHeight > maxHeight {
+					if maxHeight != 0 && !warnedAboutHeight {
+						log.Warn("Block height is larger than previous max height")
+						warnedAboutHeight = true
+					}
+					maxHeight = blockHeight
+				}
+				continue // skip normal sprite logic
+			}
 
 			if bounds.Dx() > maxWidth {
 				if maxWidth != 0 && !warnedAboutWidth {
@@ -152,61 +262,7 @@ var spritesCmd = &cobra.Command{
 
 				columnI := 0
 				for x := bounds.Min.X; x < bounds.Max.X; x++ {
-					c := img.At(x, y)
-					r, g, b, a := c.RGBA()
-
-					// RGBA() returns values in the range [0, 65535], scale them to [0, 255]
-					r8, g8, b8, a8 := uint8(r>>8), uint8(g>>8), uint8(b>>8), uint8(a>>8)
-
-					hexCodeRGBA := fmt.Sprintf("#%02x%02x%02x%02x", r8, g8, b8, a8)
-
-					if hexCodeRGBA != "#00000000" {
-						if _, exists := colors[hexCodeRGBA]; !exists {
-							colors[hexCodeRGBA] = ColorMetadata{
-								Color: hexCodeRGBA,
-								Count: 1,
-								Files: []string{png},
-								Index: currentColorIndex,
-							}
-							currentColorIndex++
-						} else {
-							color := colors[hexCodeRGBA]
-							color.Count++
-
-							// check if file already present
-							filePresent := false
-							for _, file := range color.Files {
-								if file == png {
-									filePresent = true
-									break
-								}
-							}
-
-							if !filePresent {
-								color.Files = append(colors[hexCodeRGBA].Files, png)
-							}
-
-							colors[hexCodeRGBA] = color
-						}
-					}
-
-					colorIndexOfPixel := "."
-					if hexCodeRGBA != "#00000000" {
-						if colors[hexCodeRGBA].Index < 10 {
-							colorIndexOfPixel = strconv.Itoa(colors[hexCodeRGBA].Index)
-						} else {
-							newIndex := colors[hexCodeRGBA].Index - 10
-							charsMap := strings.Split("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ", "")
-
-							if newIndex-1 > len(charsMap) {
-								log.Error("Too many colors. You can only use up to 62 colors")
-							}
-
-							colorIndexOfPixel = charsMap[newIndex]
-						}
-					}
-
-					spriteRow[columnI] = colorIndexOfPixel
+					spriteRow[columnI] = processPixel(img, x, y, png)
 					columnI++
 				}
 
