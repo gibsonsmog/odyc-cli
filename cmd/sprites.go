@@ -99,8 +99,12 @@ var spritesCmd = &cobra.Command{
 		type SpriteMetadata struct {
 			Rows [][]string
 		}
+		type TilesMetadata struct {
+			Rows [][]string
+		}
 
 		sprites := map[string]SpriteMetadata{}
+		tiles := map[string]TilesMetadata{}
 		colors := map[string]ColorMetadata{}
 		currentColorIndex := 0
 		maxWidth := 0
@@ -196,8 +200,8 @@ var spritesCmd = &cobra.Command{
 				for by := 0; by < blocksY; by++ {
 					for bx := 0; bx < blocksX; bx++ {
 						blockSpriteName := spriteName + "_" + strconv.Itoa(by) + "_" + strconv.Itoa(bx)
-						if _, exists := sprites[blockSpriteName]; !exists {
-							sprites[blockSpriteName] = SpriteMetadata{
+						if _, exists := tiles[blockSpriteName]; !exists {
+							tiles[blockSpriteName] = TilesMetadata{
 								Rows: make([][]string, blockHeight),
 							}
 						}
@@ -212,7 +216,7 @@ var spritesCmd = &cobra.Command{
 								}
 								spriteRow[x] = processPixel(img, ix, iy, png)
 							}
-							sprites[blockSpriteName].Rows[y] = spriteRow
+							tiles[blockSpriteName].Rows[y] = spriteRow
 						}
 					}
 				}
@@ -276,8 +280,12 @@ var spritesCmd = &cobra.Command{
 			return
 		}
 
-		if len(sprites) == 0 {
+		if len(sprites) == 0 && !spriteSheet {
 			log.Error("No sprites made from PNG images")
+			return
+		}
+		if len(tiles) == 0 && spriteSheet {
+			log.Error("No tiles made from PNG images")
 			return
 		}
 
@@ -290,7 +298,11 @@ var spritesCmd = &cobra.Command{
 		}
 
 		log.Info(strconv.Itoa(len(colors)) + " colors found across all sprites")
-		log.Info(strconv.Itoa(len(sprites)) + " sprites found across all PNG files")
+		if !spriteSheet {
+			log.Info(strconv.Itoa(len(sprites)) + " sprites found across all PNG files")
+		} else {
+			log.Info(strconv.Itoa(len(tiles)) + " tiles found across all PNG files")
+		}
 
 		codeColors := make([]string, len(colors))
 		{
@@ -316,6 +328,53 @@ var spritesCmd = &cobra.Command{
 				i++
 			}
 		}
+		// This is set up this way to hopefully match the style of the codeSprites declaration above and the sprites object set up below. Probably warrants a refactor
+		var codeTiles []string
+		{
+			// group tiles by name
+			// this feels somewhat clunky
+			tileGroups := make(map[string]map[string]map[string]string)
+			for spriteName, sprite := range tiles {
+				tileVals := strings.Split(spriteName, "_")
+				tileName := tileVals[0]
+				tileRow := tileVals[1]
+				tileColumn := tileVals[2]
+
+				if tileGroups[tileName] == nil {
+					tileGroups[tileName] = make(map[string]map[string]string)
+				}
+				if tileGroups[tileName][tileRow] == nil {
+					tileGroups[tileName][tileRow] = make(map[string]string)
+				}
+
+				codeRows := make([]string, len(sprite.Rows))
+				for rowI, row := range sprite.Rows {
+					codeRows[rowI] = `            ` + strings.Join(row, "")
+				}
+
+				tileGroups[tileName][tileRow][tileColumn] = "`\n" + strings.Join(codeRows, "\n") + "\n            `"
+			}
+
+			// output formatting
+			// this doesnt feel clunky, it is clunky
+			codeTiles = make([]string, 0, len(tileGroups))
+			for tileName, rows := range tileGroups {
+				rowStrings := make([]string, 0, len(rows))
+				for row, columns := range rows {
+					columnStrings := make([]string, 0, len(columns))
+					for col, content := range columns {
+						columnStrings = append(columnStrings, fmt.Sprintf(`"%s": %s`, col, content))
+					}
+					rowStrings = append(rowStrings, fmt.Sprintf(`        "%s": {%s}`,
+						row,
+						strings.Join(columnStrings, ","),
+					))
+				}
+				codeTiles = append(codeTiles, fmt.Sprintf(`    "%s": {
+		%s
+			},`, tileName, strings.Join(rowStrings, ",\n")))
+			}
+		}
 
 		// TODO: This is ugly, use some templating engine. Your future self will thank you a lot.
 		code := `var gameConfig = {
@@ -325,6 +384,9 @@ var spritesCmd = &cobra.Command{
 		"` + strings.Join(codeColors, `",
 		"`) + `",
 	],
+	tiles: {
+	` + strings.Join(codeTiles, "\n") + `
+	},
 	sprites: {
 ` + strings.Join(codeSprites, "\n") + `
 	}
@@ -337,7 +399,10 @@ var spritesCmd = &cobra.Command{
 				log.Errorf("Failed to write code to output file: %v", err)
 			}
 		}
-
-		log.Logf(2, "Sprites configuration generated successfully")
+		if spriteSheet {
+			log.Info("Tileset configuration generated successfully")
+		} else {
+			log.Logf(2, "Sprites configuration generated successfully")
+		}
 	},
 }
