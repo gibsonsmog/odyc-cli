@@ -36,6 +36,11 @@ func TestSpritesCommand(t *testing.T) {
 	assert.Equal(t, response.ExitCode, 1)
 	assert.Contains(t, response.Output, `required flag(s) "assets" not set`)
 
+	// Successful run with sprite-sheet
+	response = ExecuteCommand(t, "../odyc-cli sprites --assets ../tests/resources/large --output ../tests/resources/sprite-sheet.js --sprite-sheet --block-width 16 --block-height 16 --force")
+	assert.Equal(t, response.ExitCode, 0)
+	assert.Contains(t, response.Output, `Tileset configuration generated successfully`)
+
 	// Successful run
 	response = ExecuteCommand(t, "../odyc-cli sprites -a ../tests/resources/ -o ../tests/resources/sprites.js")
 	assert.Equal(t, response.ExitCode, 0)
