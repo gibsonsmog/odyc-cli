@@ -15,7 +15,7 @@ import (
 var assetsPath string
 var outputPath string
 var force bool
-var spriteSheet bool
+var tileSet bool
 var blockWidth int
 var blockHeight int
 
@@ -23,7 +23,7 @@ func init() {
 	spritesCmd.Flags().StringVarP(&assetsPath, "assets", "a", "", "path to assets directory")
 	spritesCmd.Flags().StringVarP(&outputPath, "output", "o", "", "path to output file")
 	spritesCmd.Flags().BoolVarP(&force, "force", "f", false, "overwrite output file if it exists")
-	spritesCmd.Flags().BoolVar(&spriteSheet, "sprite-sheet", false, "treat assets as a sprite sheet (multiple sprites in one image)")
+	spritesCmd.Flags().BoolVar(&tileSet, "tile-set", false, "treat assets as a tile set (sprite sheet)")
 	spritesCmd.Flags().IntVar(&blockWidth, "block-width", 0, "width of each sprite block (for sprite sheets)")
 	spritesCmd.Flags().IntVar(&blockHeight, "block-height", 0, "height of each sprite block (for sprite sheets)")
 
@@ -191,7 +191,7 @@ var spritesCmd = &cobra.Command{
 			bounds := img.Bounds()
 
 			// If blockWidth and blockHeight are set, treat as sprite sheet
-			if spriteSheet && blockWidth > 0 && blockHeight > 0 {
+			if tileSet && blockWidth > 0 && blockHeight > 0 {
 				blocksX := bounds.Dx() / blockWidth
 				blocksY := bounds.Dy() / blockHeight
 				if bounds.Dx()%blockWidth != 0 || bounds.Dy()%blockHeight != 0 {
@@ -280,11 +280,11 @@ var spritesCmd = &cobra.Command{
 			return
 		}
 
-		if len(sprites) == 0 && !spriteSheet {
+		if len(sprites) == 0 && !tileSet {
 			log.Error("No sprites made from PNG images")
 			return
 		}
-		if len(tiles) == 0 && spriteSheet {
+		if len(tiles) == 0 && tileSet {
 			log.Error("No tiles made from PNG images")
 			return
 		}
@@ -298,7 +298,7 @@ var spritesCmd = &cobra.Command{
 		}
 
 		log.Info(strconv.Itoa(len(colors)) + " colors found across all sprites")
-		if !spriteSheet {
+		if !tileSet {
 			log.Info(strconv.Itoa(len(sprites)) + " sprites found across all PNG files")
 		} else {
 			log.Info(strconv.Itoa(len(tiles)) + " tiles found across all PNG files")
@@ -399,7 +399,7 @@ var spritesCmd = &cobra.Command{
 				log.Errorf("Failed to write code to output file: %v", err)
 			}
 		}
-		if spriteSheet {
+		if tileSet {
 			log.Info("Tileset configuration generated successfully")
 		} else {
 			log.Logf(2, "Sprites configuration generated successfully")
