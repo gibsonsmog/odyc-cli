@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sort"
 
 	"github.com/charmbracelet/log"
 	"github.com/spf13/cobra"
@@ -168,6 +169,41 @@ var spritesCmd = &cobra.Command{
 			processColor(hexCodeRGBA, png)
 			return getColorIndex(hexCodeRGBA)
 		}
+		// helper functions for sorting
+		atoiSafe := func(s string) int {
+			i, _ := strconv.Atoi(s)
+			return i
+		}
+		sortKeys := func(keys []string) []string {
+			ints := make([]int, len(keys))
+			for i, k := range keys {
+				ints[i] = atoiSafe(k)
+			}
+			sort.Ints(ints)
+			out := make([]string, len(ints))
+			for i, v := range ints {
+				out[i] = strconv.Itoa(v)
+			}
+			return out
+		}
+
+		// helper to get map keys
+		getMapKeys := func(m map[string]string) []string {
+			keys := make([]string, 0, len(m))
+			for k := range m {
+				keys = append(keys, k)
+			}
+			return keys
+		}
+		getMapKeysRows := func(m map[string]map[string]string) []string {
+			keys := make([]string, 0, len(m))
+			for k := range m {
+				keys = append(keys, k)
+			}
+			return keys
+		}
+
+
 
 		for _, png := range pngs {
 			spriteName := strings.TrimSuffix(png, ".png")
@@ -332,7 +368,6 @@ var spritesCmd = &cobra.Command{
 		var codeTiles []string
 		{
 			// group tiles by name
-			// this feels somewhat clunky
 			tileGroups := make(map[string]map[string]map[string]string)
 			for spriteName, sprite := range tiles {
 				tileVals := strings.Split(spriteName, "_")
@@ -355,24 +390,22 @@ var spritesCmd = &cobra.Command{
 				tileGroups[tileName][tileRow][tileColumn] = "`\n" + strings.Join(codeRows, "\n") + "\n            `"
 			}
 
-			// output formatting
-			// this doesnt feel clunky, it is clunky
+			// output formatting, now with sorted rows and columns and comfortable JS line breaks
 			codeTiles = make([]string, 0, len(tileGroups))
 			for tileName, rows := range tileGroups {
-				rowStrings := make([]string, 0, len(rows))
-				for row, columns := range rows {
-					columnStrings := make([]string, 0, len(columns))
-					for col, content := range columns {
-						columnStrings = append(columnStrings, fmt.Sprintf(`"%s": %s`, col, content))
+				rowKeys := sortKeys(getMapKeysRows(rows))
+				rowStrings := make([]string, len(rowKeys))
+				for i, row := range rowKeys {
+					columns := rows[row]
+					colKeys := sortKeys(getMapKeys(columns))
+					colStrings := make([]string, len(colKeys))
+					for j, col := range colKeys {
+						content := columns[col]
+						colStrings[j] = fmt.Sprintf("            \"%s\": %s", col, content)
 					}
-					rowStrings = append(rowStrings, fmt.Sprintf(`        "%s": {%s}`,
-						row,
-						strings.Join(columnStrings, ","),
-					))
+					rowStrings[i] = fmt.Sprintf("        \"%s\": {\n%s\n        }", row, strings.Join(colStrings, ",\n"))
 				}
-				codeTiles = append(codeTiles, fmt.Sprintf(`    "%s": {
-		%s
-			},`, tileName, strings.Join(rowStrings, ",\n")))
+				codeTiles = append(codeTiles, fmt.Sprintf("    \"%s\": {\n%s\n    },", tileName, strings.Join(rowStrings, ",\n")))
 			}
 		}
 
